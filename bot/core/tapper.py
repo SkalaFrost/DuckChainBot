@@ -224,7 +224,7 @@ class Tapper:
 
     @error_handler
     async def make_request(self, http_client, method, endpoint=None, url=None, **kwargs):
-        full_url = url or f"https://tgapi.duckchain.io{endpoint or ''}"
+        full_url = url or f"https://preapi.duckchain.io{endpoint or ''}"
         response = await http_client.request(method, full_url, **kwargs)
         response.raise_for_status()
         return await response.json()
