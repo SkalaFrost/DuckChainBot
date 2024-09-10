@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True)
 
     API_ID: int = 1
-    API_HASH: str = ""
+    API_HASH: str = "1"
    
     REF_ID: str = ''
     TAP: bool = False

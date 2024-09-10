@@ -242,12 +242,16 @@ class Tapper:
         return await self.make_request(http_client, 'GET', endpoint="/task/task_list")
 
     @error_handler
-    async def done_tasks(self, http_client, task_id):
-        return await self.make_request(http_client, 'GET', endpoint="/task/follow_twitter", params = {"taskId" : task_id})
-
+    async def do_task(self, http_client, path, taskId):
+        return await self.make_request(http_client, 'GET', endpoint=f"/task/{path}", params = {"taskId" : taskId})
+      
     @error_handler
     async def get_tasksinfo(self, http_client):
         return await self.make_request(http_client, 'GET', endpoint="/task/task_info")
+    
+    @error_handler
+    async def check_in(self, http_client):
+        return await self.make_request(http_client, 'GET', endpoint="/task/sign_in?")
 
     @error_handler
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
@@ -277,39 +281,52 @@ class Tapper:
                     duck_name = userinfo_res.get('data', {}).get('duckName',None)
                     quackTimes = userinfo_res.get('data', {}).get('quackTimes',None)
                     decibels = userinfo_res.get('data', {}).get('decibels',None) 
-
+                    self.info(f"Duck name: <green>{duck_name}</green> - Balance: <cyan>{decibels}</cyan> - Total Click: <cyan>{quackTimes}</cyan>")
+                
 
                 if settings.AUTO_TASK:
                     task_info_res = await self.get_tasksinfo(http_client=http_client)
                     done_task = []
-
+                    twitterDaily = task_info_res.get("data",{}).get("twitterDaily","")
                     if task_info_res and (data := task_info_res.get("data", {})):
                         done_task = [task for tasks in data.values() if isinstance(tasks, list) for task in tasks]
 
                     task_res = await self.get_tasks(http_client=http_client)
-                    tasks = []
+      
+                    paths = {"social_media": "follow_twitter", "daily": "twitter_interaction", "oneTime": "partner", "partner": "partner"}
+                    if task_res and (tasks := task_res.get("data", {})):
+                        for task_type, task_list in tasks.items():
+                            for task in task_list:
+                                if task['taskId'] in done_task:
+                                    continue
+                                
+                                if task.get('action') and 't.me' in task.get('action'):
+                                    await self.join_and_mute_tg_channel(task.get('action'))
+                                    continue
+                                
+                                if task_type == "daily" and task["taskType"] == "daily_check_in":
+                                    check_in_res = await self.check_in(http_client=http_client)
+                                    if check_in_res.get("message") == "SUCCESS":
+                                        self.success("Check in suceeded!")
+                                        continue
+                                elif task_type == "daily" and task["taskType"] == "twitter_interaction" and twitterDaily == "5":
+                                    continue
 
-                    if task_res and (data := task_res.get("data", {})):
-                        tasks = [task for task in data["social_media"] if task["taskType"] != "connetion_wallet"]
-                        # tasks = [task for tasks in data.values() if isinstance(tasks, list) for task in tasks]
+                                path = paths.get(task_type, "")
+                                if path:
+                                    do_task_res = await self.do_task(http_client=http_client,path = path,taskId = task['taskId'])
+                                    message = do_task_res.get("message")
+                                    content = task.get('content')
 
-                    for task in tasks:
-                        if task.get("taskId") not in done_task:
-                            if task.get('action') and 't.me' in task.get('action'):
-                                await self.join_and_mute_tg_channel(task.get('action'))
-                            else:
-                                task_res = await self.done_tasks(http_client=http_client, task_id=task.get('taskId'))
-
-                                message = task_res.get("message")
-                                content = task.get('content')
-
-                                if message == "SUCCESS":
-                                    self.success(f"Task <cyan>{content}</cyan> succeeded")
-                                elif message == "task was finished":
-                                    self.info(f"Task <cyan>{content}</cyan> task was finished")
+                                    if message == "SUCCESS":
+                                        self.success(f"Task <cyan>{content}</cyan> succeeded")
+                                    elif message == "task was finished":
+                                        self.info(f"Task <cyan>{content}</cyan> task was finished")
+                                    else:
+                                        self.info(f"Task <cyan>{content}</cyan> failed")
+                                    await asyncio.sleep(random.randint(2,10))
                                 else:
                                     self.info(f"Task <cyan>{content}</cyan> failed")
-                                await asyncio.sleep(random.randint(2,10))
                             
                 if settings.TAP: 
                     execute_res = await self.execute(http_client=http_client)
@@ -322,8 +339,9 @@ class Tapper:
                     else:
                         self.warning("Decibel or Quack Times not found in response.")
                 else: 
-                    self.info("<lg> All functions are be done, you can close bot...</lg>")
-                    await asyncio.sleep(36000)
+                    sleep_time = random.randint(3600,4000)
+                    self.info(f"Sleep <y>{sleep_time}s</y>")
+                    await asyncio.sleep(delay=sleep_time)    
 
             except InvalidSession as error:
                 raise error
