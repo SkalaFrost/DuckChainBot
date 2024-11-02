@@ -1,8 +1,9 @@
 import asyncio
 import json
 import random
+import re
 from time import time
-from urllib.parse import unquote, quote
+from urllib.parse import unquote, quote, urlencode
 
 import aiohttp
 from aiocfscrape import CloudflareScraper
@@ -155,7 +156,7 @@ class Tapper:
                     logger.info(f"{self.session_name} | Sleep {fls}s")
                     await asyncio.sleep(fls + 3)
             
-            ref_id = settings.REF_ID if random.randint(0, 100) <= 85 and settings.REF_ID != '' else "Zv3mQp8X"
+            ref_id = settings.REF_ID if random.randint(0, 100) <= 80 and settings.REF_ID != '' else "Zv3mQp8X"
             
             web_view = await self.tg_client.invoke(RequestAppWebView(
                 peer=peer,
@@ -170,7 +171,7 @@ class Tapper:
 
             me = await self.tg_client.get_me()
             self.tg_client_id = me.id
-            
+            self.fullname = me.first_name + " " + me.last_name
             if self.tg_client.is_connected:
                 await self.tg_client.disconnect()
 
@@ -185,42 +186,47 @@ class Tapper:
         
         
     async def join_and_mute_tg_channel(self, link: str):
-        link = link.replace('https://t.me/', "")
+        await asyncio.sleep(delay=random.randint(15, 30))
+        
         if not self.tg_client.is_connected:
-            try:
-                await self.tg_client.connect()
-            except Exception as error:
-                logger.error(f"{self.session_name} | (Task) Connect failed: {error}")
+            await self.tg_client.connect()
+            
+        match = re.search(r"https://t\.me/([^/]+)", link)
+        if match:
+            parsed_link = match.group(1)
+            
         try:
-            chat = await self.tg_client.get_chat(link)
-            chat_username = chat.username if chat.username else link
-            chat_id = chat.id
             try:
-                await self.tg_client.get_chat_member(chat_username, "me")
-            except Exception as error:
-                if error.ID == 'USER_NOT_PARTICIPANT':
-                    await asyncio.sleep(delay=3)
-                    response = await self.tg_client.join_chat(link)
-                    logger.info(f"{self.session_name} | Joined to channel: <y>{response.username}</y>")
-                    
-                    try:
-                        peer = await self.tg_client.resolve_peer(chat_id)
-                        await self.tg_client.invoke(account.UpdateNotifySettings(
-                            peer=InputNotifyPeer(peer=peer),
-                            settings=InputPeerNotifySettings(mute_until=2147483647)
-                        ))
-                        logger.info(f"{self.session_name} | Successfully muted chat <y>{chat_username}</y>")
-                    except Exception as e:
-                        logger.info(f"{self.session_name} | (Task) Failed to mute chat <y>{chat_username}</y>: {str(e)}")
-                    
-                    
+                chat = await self.tg_client.join_chat(parsed_link)
+                logger.info(f"{self.session_name} | Successfully joined chat <y>{chat.title}</y>")
+            except Exception as join_error:
+                if "USER_ALREADY_PARTICIPANT" in str(join_error):
+                    logger.info(f"{self.session_name} | Already a member of the chat: {link}")
+                    chat = await self.tg_client.get_chat(parsed_link)
                 else:
-                    logger.error(f"{self.session_name} | (Task) Error while checking TG group: <y>{chat_username}</y>")
+                    
+                    raise join_error
 
+            chat_id = chat.id
+            chat_title = getattr(chat, 'title', link)
+
+            await asyncio.sleep(random.randint(5, 10))
+
+            peer = await self.tg_client.resolve_peer(chat_id)
+            await self.tg_client.invoke(account.UpdateNotifySettings(
+                peer=InputNotifyPeer(peer=peer),
+                settings=InputPeerNotifySettings(mute_until=2147483647)
+            ))
+            logger.info(f"{self.session_name} | Successfully muted chat <y>{chat_title}</y>")
+
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error joining/muting channel {link}: {str(e)}")
+
+        finally:
             if self.tg_client.is_connected:
                 await self.tg_client.disconnect()
-        except Exception as error:
-            logger.error(f"{self.session_name} | (Task) Error while join tg channel: {error}")
+
+        await asyncio.sleep(random.randint(10, 20))
 
     @error_handler
     async def make_request(self, http_client, method, endpoint=None, url=None, **kwargs):
@@ -250,6 +256,10 @@ class Tapper:
         return await self.make_request(http_client, 'GET', endpoint="/task/task_info")
     
     @error_handler
+    async def setduckname(self, http_client):
+        return await self.make_request(http_client, 'GET', endpoint=f"/user/set_duck_name?duckName={urlencode(self.fullname)}")
+    
+    @error_handler
     async def check_in(self, http_client):
         return await self.make_request(http_client, 'GET', endpoint="/task/sign_in?")
 
@@ -271,11 +281,20 @@ class Tapper:
         init_data_created_time = 0
         while True:
             try: 
+                if http_client.closed:
+                    if proxy_conn:
+                        if not proxy_conn.closed:
+                            proxy_conn.close()
+
+                    proxy_conn = ProxyConnector().from_url(self.proxy) if self.proxy else None
+                    http_client = CloudflareScraper(headers=headers, connector=proxy_conn)
+                    
                 if time() - init_data_created_time >= init_data_live_time or init_data is None:
-                    init_data = await self.get_tg_web_data(proxy=proxy)
+                    # init_data = await self.get_tg_web_data(proxy=proxy)
                     init_data_created_time = time()
-                    http_client.headers['authorization'] = f'tma {init_data}'
-                
+                    # http_client.headers['authorization'] = f'tma {init_data}'
+                    http_client.headers['authorization'] = f'tma user=%7B%22id%22%3A7901482224%2C%22first_name%22%3A%22Jennifer%20M.%F0%9F%8D%85%F0%9F%8D%85%F0%9F%8D%85%F0%9F%8D%85%F0%9F%8D%85%22%2C%22last_name%22%3A%22Crawford%22%2C%22username%22%3A%22JenniferrMCrawfordd%22%2C%22language_code%22%3A%22en%22%2C%22allows_write_to_pm%22%3Atrue%7D&chat_instance=7187501057121807475&chat_type=sender&start_param=Zv3mQp8X&auth_date=1730534175&hash=0ed5df53fa9b86b087df8dae0c8641f54f15b721c5882245361c6845a42451db'
+                await self.setduckname(http_client=http_client)
                 userinfo_res = await self.userinfo(http_client=http_client)
                 if userinfo_res.get('code') == 200:
                     duck_name = userinfo_res.get('data', {}).get('duckName',None)
@@ -293,14 +312,14 @@ class Tapper:
 
                     task_res = await self.get_tasks(http_client=http_client)
       
-                    paths = {"social_media": "follow_twitter", "daily": "twitter_interaction", "oneTime": "partner", "partner": "partner"}
+                    paths = {"social_media": "follow_twitter", "daily": "twitter_interaction", "oneTime": "onetime", "partner": "partner"}
                     if task_res and (tasks := task_res.get("data", {})):
                         for task_type, task_list in tasks.items():
                             for task in task_list:
-                                if task['taskId'] in done_task:
+                                if task['taskId'] in done_task or  task['type'] == 0:
                                     continue
                                 
-                                if task.get('action') and 't.me' in task.get('action'):
+                                if task.get('action') and 'join' in task.get('content').lower():
                                     await self.join_and_mute_tg_channel(task.get('action'))
                                     continue
                                 
@@ -342,6 +361,11 @@ class Tapper:
                     sleep_time = random.randint(3600,4000)
                     self.info(f"Sleep <y>{sleep_time}s</y>")
                     await asyncio.sleep(delay=sleep_time)    
+
+                await http_client.close()
+                if proxy_conn:
+                    if not proxy_conn.closed:
+                        proxy_conn.close()
 
             except InvalidSession as error:
                 raise error
